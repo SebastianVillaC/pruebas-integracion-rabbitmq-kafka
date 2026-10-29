@@ -1,0 +1,56 @@
+# Arquitectura basada en mensajes con RabbitMQ
+#   docker compose up -d --build
+#   docker compose ps
+#   docker compose up -d --scale notification-worker=2   (múltiples consumidores)
+name: pedidos-rabbitmq
+
+services:
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: rabbitmq
+    hostname: rabbitmq # el nombre del nodo depende del hostname; fijo para conservar datos entre reinicios
+    ports:
+      - "5672:5672"   # AMQP (orders-api y notification-worker)
+      - "15672:15672" # consola web RabbitMQ Management
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=admin
+      # la consola refresca contadores cada 1 s (por defecto 5 s) para observar Ready/Unacked
+      - RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS=-rabbit collect_statistics_interval 1000
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  orders-api:
+    build: ./orders-api
+    container_name: orders-api
+    ports:
+      - "${API_PORT:-3000}:3000"
+    environment:
+      - PORT=3000
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+      - RABBITMQ_QUEUE=pedidos
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  # Sin container_name para poder escalar con --scale notification-worker=N
+  notification-worker:
+    build: ./notification-worker
+    environment:
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+      - RABBITMQ_QUEUE=pedidos
+      - PREFETCH=1
+      - PROCESSING_MS_MIN=2000
+      - PROCESSING_MS_MAX=5000
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  rabbitmq-data:
