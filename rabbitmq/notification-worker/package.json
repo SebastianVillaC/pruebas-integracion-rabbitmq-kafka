@@ -1,0 +1,13 @@
+{
+  "name": "notification-worker-rabbitmq",
+  "version": "1.0.0",
+  "description": "Worker consumidor de la cola pedidos en RabbitMQ (simula notificaciones)",
+  "main": "src/index.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "amqplib": "^0.10.4"
+  }
+}
