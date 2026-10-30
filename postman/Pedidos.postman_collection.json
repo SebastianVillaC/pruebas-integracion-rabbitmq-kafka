@@ -1,0 +1,113 @@
+{
+  "info": {
+    "name": "Pruebas de integración - Pedidos (RabbitMQ / Kafka)",
+    "description": "Requests para las dos arquitecturas. Ambas exponen la API en http://localhost:3000, por eso se levanta una arquitectura a la vez.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [{ "key": "baseUrl", "value": "http://localhost:3000" }],
+  "item": [
+    {
+      "name": "RabbitMQ",
+      "item": [
+        {
+          "name": "CP-01 Crear pedido",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 202 accepted', () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.test('status accepted y orderId', () => { pm.expect(body.status).to.eql('accepted'); pm.expect(body.orderId).to.match(/^ORD-/); });",
+                  "pm.test('Responde sin esperar al worker (< 500 ms)', () => pm.expect(pm.response.responseTime).to.be.below(500));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Correlation-Id", "value": "corr-postman-{{$timestamp}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerName\": \"Pedro\",\n  \"product\": \"Libro de arquitectura\",\n  \"quantity\": 1\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/orders", "host": ["{{baseUrl}}"], "path": ["orders"] }
+          }
+        },
+        {
+          "name": "CP-01 Pedido inválido (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 400', () => pm.response.to.have.status(400));"] }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"customerName\": \"\",\n  \"quantity\": 0\n}" },
+            "url": { "raw": "{{baseUrl}}/orders", "host": ["{{baseUrl}}"], "path": ["orders"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Kafka",
+      "item": [
+        {
+          "name": "CP-01 Crear pedido",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 202 accepted', () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.test('status accepted y orderId', () => { pm.expect(body.status).to.eql('accepted'); pm.expect(body.orderId).to.match(/^ORD-/); });",
+                  "pm.test('Mensaje menciona OrderCreated', () => pm.expect(body.message).to.include('OrderCreated'));",
+                  "pm.test('Responde sin esperar a los consumidores (< 500 ms)', () => pm.expect(pm.response.responseTime).to.be.below(500));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Correlation-Id", "value": "corr-postman-{{$timestamp}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerName\": \"Pedro\",\n  \"product\": \"Libro de arquitectura\",\n  \"quantity\": 1,\n  \"unitPrice\": 85000\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/orders", "host": ["{{baseUrl}}"], "path": ["orders"] }
+          }
+        },
+        {
+          "name": "CP-01 Pedido inválido (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 400', () => pm.response.to.have.status(400));"] }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"customerName\": \"Pedro\",\n  \"product\": \"\",\n  \"quantity\": 1\n}" },
+            "url": { "raw": "{{baseUrl}}/orders", "host": ["{{baseUrl}}"], "path": ["orders"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] } }
+    }
+  ]
+}
