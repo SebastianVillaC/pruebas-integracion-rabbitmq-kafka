@@ -1,0 +1,105 @@
+# Arquitectura basada en eventos con Apache Kafka
+#   docker compose up -d --build
+#   docker compose ps
+#   docker compose up -d --scale inventory-consumer=2   (varias instancias del mismo grupo)
+name: pedidos-kafka
+
+x-consumer-env: &consumer-env
+  KAFKA_BROKER: kafka:9092
+  KAFKA_TOPIC: orders.events
+  PROCESSING_MS_MIN: 2000
+  PROCESSING_MS_MAX: 5000
+
+services:
+  kafka:
+    image: bitnamilegacy/kafka:3.7
+    container_name: kafka
+    hostname: kafka
+    ports:
+      - "29092:29092" # acceso externo desde la máquina anfitriona (9092 es solo interno)
+    environment:
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,EXTERNAL://:29092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_KRAFT_CLUSTER_ID=pedidos-kafka-cluster-01
+      # tópicos con 3 particiones por defecto (reparto de carga dentro de un consumer group)
+      - KAFKA_CFG_NUM_PARTITIONS=3
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+      # nodo único: los tópicos internos no pueden replicarse
+      - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR=1
+      # retención del log: 7 días (los eventos se conservan aunque ya se hayan consumido)
+      - KAFKA_CFG_LOG_RETENTION_HOURS=168
+      - ALLOW_PLAINTEXT_LISTENER=yes
+    volumes:
+      - kafka-data:/bitnami/kafka
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  orders-api:
+    build: ./orders-api
+    container_name: orders-api
+    ports:
+      - "${API_PORT:-3000}:3000"
+    environment:
+      - PORT=3000
+      - KAFKA_BROKER=kafka:9092
+      - KAFKA_TOPIC=orders.events
+      - KAFKA_TOPIC_PARTITIONS=3
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # Los consumidores no declaran container_name para poder escalarlos con --scale.
+  # Cada uno usa un consumer group distinto: todos reciben cada OrderCreated.
+  inventory-consumer:
+    build: ./inventory-consumer
+    environment:
+      <<: *consumer-env
+      KAFKA_GROUP_ID: inventory-service-group
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  billing-consumer:
+    build: ./billing-consumer
+    environment:
+      <<: *consumer-env
+      KAFKA_GROUP_ID: billing-service-group
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  notification-consumer:
+    build: ./notification-consumer
+    environment:
+      <<: *consumer-env
+      KAFKA_GROUP_ID: notification-service-group
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+volumes:
+  kafka-data:
